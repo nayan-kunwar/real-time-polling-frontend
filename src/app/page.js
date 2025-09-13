@@ -8,64 +8,92 @@ export default function PollsPage() {
 
   const socketUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL;
 
-  // Initialize socket
+  // Initialize socket connection lazily
   const socket = useMemo(() => {
     if (!socketUrl) return null;
     return io(socketUrl, { autoConnect: false });
   }, [socketUrl]);
 
-  // Fetch polls on mount
+  // Fetch polls and join rooms
   useEffect(() => {
+    if (!socketUrl || !socket) return;
+
     async function fetchPolls() {
       const res = await fetch(`${socketUrl}/api/v1/polls`);
       const data = await res.json();
-      setPolls(data.polls || []);
+      const pollList = Array.isArray(data) ? data : data.polls || [];
+      setPolls(pollList);
 
-      // Join all polls in socket rooms
-      socket?.on("connect", () => {
-        console.log("Socket connected");
-        data.polls.forEach((poll) => socket.emit("joinPoll", poll.id));
+      // Connect socket and join all poll rooms
+      socket.connect();
+      socket.on("connect", () => {
+        console.log("✅ Connected to WebSocket");
+        pollList.forEach((poll) => {
+          console.log(`Joining poll room: ${poll.id}`);
+          socket.emit("joinPoll", poll.id); // Join room for each poll 
+        });
       });
     }
-    fetchPolls();
-  }, [socket]);
 
-  // Listen for socket updates
+    fetchPolls();
+
+    // Cleanup socket on unmount
+    return () => {
+      socket.disconnect();
+    };
+  }, [socket, socketUrl]);
+
+  // Listen for real-time updates
   useEffect(() => {
     if (!socket) return;
-    socket.connect();
 
-    socket.on("pollUpdated", (updated) => {
+    socket.on("updateResults", (results) => {
+      console.log("📊 Received updateResults:", results);
+
+      // Backend sends only updated options for one poll
+      // Find pollId from first option or add pollId in broadcast payload
+      if (!results.length) return;
+
+      // Try to get pollId from results metadata
+      // Modify broadcastPollResults to also send pollId for clarity if not already
+      const pollId = results[0].pollId || results.pollId;
+      if (!pollId) {
+        console.warn("No pollId in results payload");
+        return;
+      }
+
       setPolls((prev) =>
         prev.map((poll) =>
-          poll.id === updated.pollId
-            ? { ...poll, options: updated.options }
-            : poll
+          poll.id === pollId ? { ...poll, options: results } : poll
         )
       );
     });
 
-    return () => socket.disconnect();
+    return () => {
+      socket.off("updateResults");
+    };
   }, [socket]);
 
-  // Submit vote
+  // Submit a vote
   const submitVote = async (pollId, optionId) => {
     setIsVoting(true);
     try {
       const res = await fetch(`${socketUrl}/api/v1/polls/${pollId}/vote`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pollOptionId: optionId }),
+        body: JSON.stringify({ userId: 1, pollOptionId: optionId }), // Add your logged-in userId
       });
       if (!res.ok) throw new Error("Vote failed");
       const data = await res.json();
 
-      // Use backend results to update poll options
-      setPolls((prev) =>
-        prev.map((poll) =>
-          poll.id === pollId ? { ...poll, options: data.results } : poll
-        )
-      );
+      // Optimistic UI update using backend results
+      if (data.results) {
+        setPolls((prev) =>
+          prev.map((poll) =>
+            poll.id === pollId ? { ...poll, options: data.results } : poll
+          )
+        );
+      }
     } catch (err) {
       console.error(err);
       alert("Vote failed");
