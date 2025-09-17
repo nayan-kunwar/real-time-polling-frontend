@@ -1,4 +1,5 @@
 "use client";
+import { getOrCreateUser } from "@/utils/user";
 import { useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
 
@@ -8,13 +9,11 @@ export default function PollsPage() {
 
   const socketUrl = process.env.NEXT_PUBLIC_BACKEND_API_URL;
 
-  // Initialize socket connection lazily
   const socket = useMemo(() => {
     if (!socketUrl) return null;
     return io(socketUrl, { autoConnect: false });
   }, [socketUrl]);
 
-  // Fetch polls and join rooms
   useEffect(() => {
     if (!socketUrl || !socket) return;
 
@@ -24,44 +23,31 @@ export default function PollsPage() {
       const pollList = Array.isArray(data) ? data : data.polls || [];
       setPolls(pollList);
 
-      // Connect socket and join all poll rooms
       socket.connect();
       socket.on("connect", () => {
         console.log("✅ Connected to WebSocket");
         pollList.forEach((poll) => {
           console.log(`Joining poll room: ${poll.id}`);
-          socket.emit("joinPoll", poll.id); // Join room for each poll 
+          socket.emit("joinPoll", poll.id);
         });
       });
     }
 
     fetchPolls();
-
-    // Cleanup socket on unmount
-    return () => {
-      socket.disconnect();
-    };
+    return () => socket.disconnect();
   }, [socket, socketUrl]);
 
-  // Listen for real-time updates
   useEffect(() => {
     if (!socket) return;
 
     socket.on("updateResults", (results) => {
       console.log("📊 Received updateResults:", results);
-
-      // Backend sends only updated options for one poll
-      // Find pollId from first option or add pollId in broadcast payload
       if (!results.length) return;
-
-      // Try to get pollId from results metadata
-      // Modify broadcastPollResults to also send pollId for clarity if not already
       const pollId = results[0].pollId || results.pollId;
       if (!pollId) {
         console.warn("No pollId in results payload");
         return;
       }
-
       setPolls((prev) =>
         prev.map((poll) =>
           poll.id === pollId ? { ...poll, options: results } : poll
@@ -69,24 +55,20 @@ export default function PollsPage() {
       );
     });
 
-    return () => {
-      socket.off("updateResults");
-    };
+    return () => socket.off("updateResults");
   }, [socket]);
 
-  // Submit a vote
   const submitVote = async (pollId, optionId) => {
     setIsVoting(true);
     try {
+      const userId = await getOrCreateUser(socketUrl);
       const res = await fetch(`${socketUrl}/api/v1/polls/${pollId}/vote`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: 1, pollOptionId: optionId }), // Add your logged-in userId
+        body: JSON.stringify({ userId, pollOptionId: optionId }),
       });
       if (!res.ok) throw new Error("Vote failed");
       const data = await res.json();
-
-      // Optimistic UI update using backend results
       if (data.results) {
         setPolls((prev) =>
           prev.map((poll) =>
@@ -124,25 +106,26 @@ export default function PollsPage() {
                 return (
                   <div
                     key={option.id}
-                    className="flex items-center justify-between border p-2 rounded cursor-pointer"
+                    onClick={() => !isVoting && submitVote(poll.id, option.id)}
+                    className="flex items-center justify-between border p-2 rounded cursor-pointer 
+                               hover:bg-indigo-50  hover:text-gray-900 active:scale-95 transition 
+                               transition-transform duration-150 ease-out"
                   >
-                    <label className="flex items-center w-full">
-                      <input
-                        type="radio"
-                        name={`poll-${poll.id}`}
-                        value={option.id}
-                        disabled={isVoting}
-                        onChange={() => submitVote(poll.id, option.id)}
-                        className="mr-2"
-                      />
-                      {option.text}
-                    </label>
+                    <input
+                      type="radio"
+                      name={`poll-${poll.id}`}
+                      value={option.id}
+                      disabled={isVoting}
+                      className="sr-only"
+                      readOnly
+                    />
+                    <span className="flex-1">{option.text}</span>
 
                     <div className="w-32 text-right">
                       <div>{percent}%</div>
                       <div className="w-full h-2 bg-gray-200 rounded mt-1">
                         <div
-                          className="h-2 bg-indigo-600 rounded"
+                          className="h-2 bg-indigo-600 rounded transition-all duration-300 ease-out"
                           style={{ width: `${percent}%` }}
                         />
                       </div>
@@ -151,7 +134,6 @@ export default function PollsPage() {
                 );
               })}
             </div>
-
             <p className="mt-2 text-sm text-gray-400">
               Total votes: {totalVotes}
             </p>
