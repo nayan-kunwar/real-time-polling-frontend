@@ -1,4 +1,4 @@
-###  **How to Run the Frontend**
+### **How to Run the Frontend**
 
 Follow these steps to set up and run the frontend locally:
 
@@ -32,4 +32,15 @@ Follow these steps to set up and run the frontend locally:
 
 **Your frontend should now be running at**: `http://localhost:3000`
 
+Here’s a clean way to include that explanation in your README file under a relevant section like **User Management / Voting System**:
 
+---
+## Note
+
+### User Management (Voting)
+
+> **Important:** No real authentication is implemented in this project.
+
+- On a user's **first visit**, when they submit a vote, a user will be automatically created, and a `userId` will be stored in the browser's `localStorage`.
+- If a `userId` already exists in `localStorage`, it will be reused, and the user will be considered the **same user** for subsequent actions.
+- To **reset** and create a new user, simply **clear `localStorage`** via your browser's developer tools.
