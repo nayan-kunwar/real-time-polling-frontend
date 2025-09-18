@@ -15,7 +15,7 @@ export default function PollsPage() {
   }, [socketUrl]);
 
   useEffect(() => {
-    if (!socketUrl || !socket) return;
+    if (!socketUrl || !socket) return; 
 
     async function fetchPolls() {
       const res = await fetch(`${socketUrl}/api/v1/polls`);
